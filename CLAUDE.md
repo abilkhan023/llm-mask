@@ -3,9 +3,19 @@
 Local proxy that masks secrets, hosts and personal data in everything Claude Code sends to the API and restores them in the replies.
 
 ```
-Claude Code ──real values──> llm-mask on 127.0.0.1 ──placeholders──> API or gateway
-Claude Code <──real values── llm-mask              <──placeholders──
+            YOUR MACHINE                     |          OUTSIDE
+                                             |
+  you --> Claude Code --> llm-mask ----------|----> API or gateway --> model
+                          hides values       |      sees placeholders only
+                                             |
+  you <-- Claude Code <-- llm-mask <---------|----- answer with placeholders
+                          restores values    |
 ```
+
+1. Claude Code is started with `ANTHROPIC_BASE_URL` pointed at llm-mask on `127.0.0.1`.
+2. llm-mask replaces sensitive values in the request with placeholders and forwards it.
+3. The reply comes back with placeholders, llm-mask puts the real values in.
+4. Tools on the machine run with real values.
 
 A placeholder looks like `MSK_HOST_3fa9c1d2ab`: the category and a keyed hash of the value.
 

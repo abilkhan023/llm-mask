@@ -2,17 +2,30 @@
 
 Local proxy that masks secrets, hosts and personal data in everything Claude Code sends to the API and restores them in the replies.
 
-```
-Claude Code ──real values──> llm-mask on 127.0.0.1 ──placeholders──> API or gateway
-Claude Code <──real values── llm-mask              <──placeholders──
-```
-
-The model and everything between you and it see `MSK_HOST_3fa9c1d2ab`. You and the tools on your machine see the real value.
+## How it works
 
 ```
-before:  api https://api.corp.example/v1, DB_PASSWORD=hunter2hunter42
-after:   api https://MSK_HOST_a43a809fa6/v1, DB_PASSWORD=MSK_SECRET_5c1e0b7a92
+            YOUR MACHINE                     |          OUTSIDE
+                                             |
+  you --> Claude Code --> llm-mask ----------|----> API or gateway --> model
+                          hides values       |      sees placeholders only
+                                             |
+  you <-- Claude Code <-- llm-mask <---------|----- answer with placeholders
+                          restores values    |
 ```
+
+Real values never cross the line. One request, step by step:
+
+| Step | Where | What the text looks like |
+|---|---|---|
+| 1. You ask | your machine | `psql postgres://db.corp.example:5432/app fails, DB_PASSWORD=hunter2hunter42` |
+| 2. llm-mask hides | your machine | `psql postgres://MSK_HOST_215adc229b:5432/app fails, DB_PASSWORD=MSK_SECRET_3812f97b01` |
+| 3. The model answers | outside | `Check that MSK_HOST_215adc229b accepts connections on port 5432` |
+| 4. llm-mask restores | your machine | `Check that db.corp.example accepts connections on port 5432` |
+
+You read the answer from step 4. The model has only ever seen steps 2 and 3.
+
+The same happens to files that Claude Code reads and to the output of commands it runs: they are masked on the way out. When the model asks to run a command, the placeholders in it are restored before the command runs on your machine.
 
 ## What it covers
 
