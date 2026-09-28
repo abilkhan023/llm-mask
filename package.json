@@ -1,0 +1,16 @@
+{
+  "name": "llm-mask",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local proxy that masks secrets, hosts and personal data in everything Claude Code sends to the API and restores them in the replies",
+  "type": "module",
+  "bin": {
+    "llm-mask": "bin/llm-mask.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
