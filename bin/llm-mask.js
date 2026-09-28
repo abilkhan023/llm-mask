@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
 import { loadDictionary } from '../src/config.js'
 import { createDetector } from '../src/detectors.js'
 import { launch, openRedactor, openSession } from '../src/launcher.js'
+import { runningSessions } from '../src/sessions.js'
 
 const USAGE = `llm-mask: masks sensitive values in what Claude Code sends and restores them in the replies
 
@@ -14,6 +16,7 @@ usage:
   llm-mask check <image>                  write a painted copy of an image next to it
   llm-mask add                            add dictionary entries read from standard input
   llm-mask status                         show how much is masked, by category
+  llm-mask watch                          open the live view of what is sent and what comes back
   llm-mask help                           show this list
 
 dictionary entries for add, one per line:
@@ -86,6 +89,14 @@ const commands = {
     const lead = existing && !existing.endsWith('\n') ? '\n' : ''
     appendFileSync(join(home, 'dictionary.txt'), lead + entries.map((entry) => `${entry}\n`).join(''), { mode: 0o600 })
     process.stderr.write(`added entries: ${entries.length}\n`)
+    return 0
+  },
+
+  watch: ([option]) => {
+    const sessions = runningSessions(home)
+    if (!sessions.length) throw new Error('nothing is running, start a session first: llm-mask run -- claude')
+    for (const { viewer } of sessions) process.stdout.write(`${viewer}\n`)
+    if (option !== '--print') spawn('open', [sessions[0].viewer], { stdio: 'ignore', detached: true }).unref()
     return 0
   },
 

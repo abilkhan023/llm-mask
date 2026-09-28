@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-mask live view</title>
+<style>
+:root {
+  --paper: #edf0f3;
+  --sheet: #ffffff;
+  --ink: #18212b;
+  --muted: #5b6775;
+  --rule: #c9d1da;
+  --bar: #10151b;
+  --bar-ink: #e9eef3;
+  --out: #1f5fbf;
+  --in: #0b7a63;
+  --warn: #9a5b00;
+  --ui: "Avenir Next", Avenir, system-ui, sans-serif;
+  --wire: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #121820;
+    --sheet: #1a222c;
+    --ink: #e6ebf0;
+    --muted: #93a0ae;
+    --rule: #2c3743;
+    --bar: #e6ebf0;
+    --bar-ink: #121820;
+    --out: #7fb0ff;
+    --in: #5fd3b7;
+    --warn: #e0a44a;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.45 var(--ui);
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--out); outline-offset: 2px; }
+
+.feed {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+}
+.feed header { padding: 20px 20px 14px; border-bottom: 1px solid var(--rule); }
+.feed h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.feed header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.follow { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.follow input { accent-color: var(--out); margin: 0; }
+.feed ol { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+.feed li + li { border-top: 1px solid var(--rule); }
+.entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 11px 20px 11px 17px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.entry:hover { background: color-mix(in srgb, var(--sheet) 60%, transparent); }
+.entry[aria-current="true"] { background: var(--sheet); border-left-color: var(--out); }
+.entry time { font: 12px/1.6 var(--wire); color: var(--muted); }
+.entry .what { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .state { font: 12px/1.6 var(--wire); color: var(--muted); }
+.entry .state.bad { color: var(--warn); }
+.entry .hidden { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+.live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--in); margin-right: 6px; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .live { animation: none; } }
+
+.sheet { padding: 28px clamp(20px, 4vw, 56px) 80px; min-width: 0; }
+.sheet > * { max-width: 920px; }
+.empty { margin-top: 18vh; color: var(--muted); max-width: 46ch; }
+.empty h2 { color: var(--ink); font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+.head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 8px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
+.facts b { color: var(--ink); font-weight: 500; }
+.note { margin: 14px 0 22px; padding: 10px 14px; border-left: 3px solid var(--bar); background: var(--sheet); font-size: 13px; color: var(--muted); }
+
+details { border-top: 1px solid var(--rule); }
+details:last-of-type { border-bottom: 1px solid var(--rule); }
+summary { padding: 10px 2px; cursor: pointer; color: var(--muted); font-size: 13px; }
+summary b { color: var(--ink); font-weight: 500; }
+details > .body { padding: 2px 0 16px; }
+
+.turn { margin: 22px 0 0; padding-left: 16px; border-left: 3px solid var(--out); }
+.turn.back { border-left-color: var(--in); }
+.turn h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--out); }
+.turn.back h3 { color: var(--in); }
+.piece + .piece { margin-top: 12px; }
+.piece h4 { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+pre {
+  margin: 0;
+  font: 13px/1.55 var(--wire);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+pre.long { max-height: 420px; overflow-y: auto; padding-right: 8px; }
+img.sent { display: block; max-width: 100%; border: 1px solid var(--rule); margin-top: 4px; }
+mark {
+  background: var(--bar);
+  color: var(--bar-ink);
+  padding: 1px 5px 2px;
+  border-radius: 1px;
+  font: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.removed { color: var(--warn); }
+
+.line {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  margin: 34px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.line::before, .line::after { content: ""; border-top: 2px dashed var(--rule); }
+.line span b { font-weight: 500; }
+.line .out { color: var(--out); }
+.line .in { color: var(--in); }
+.trouble { margin-top: 18px; padding: 10px 14px; border-left: 3px solid var(--warn); background: var(--sheet); color: var(--warn); font-size: 13px; }
+
+@media (max-width: 820px) {
+  body { grid-template-columns: minmax(0, 1fr); }
+  html, body { height: auto; }
+  .feed { position: static; display: block; height: auto; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .feed header { padding: 14px 20px 10px; }
+  .feed ol { max-height: 196px; }
+}
+</style>
+</head>
+<body>
+<nav class="feed" aria-label="Requests">
+  <header>
+    <h1>llm-mask</h1>
+    <p>Live view of this session</p>
+    <label class="follow"><input type="checkbox" id="follow" checked> Always show the newest request</label>
+  </header>
+  <ol id="feed"></ol>
+</nav>
+<main class="sheet" id="sheet" aria-live="polite"></main>
+<script>
+const MASK = /MSK_[A-Z]+_[0-9a-f]{10,}/g
+const feed = document.getElementById('feed')
+const sheet = document.getElementById('sheet')
+const follow = document.getElementById('follow')
+const base = location.pathname.endsWith('/') ? location.pathname : `${location.pathname}/`
+let exchanges = []
+let selected = location.hash.slice(1) || null
+let shown = ''
+let offline = false
+
+const escape = (text) => String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const wire = (text) => escape(text).replace(MASK, (mask) => `<mark>${mask}</mark>`)
+const masksIn = (value) => (JSON.stringify(value ?? '').match(MASK) ?? []).length
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour12: false })
+const size = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`)
+const total = (counts = {}) => Object.values(counts).reduce((sum, n) => sum + n, 0)
+const breakdown = (counts = {}) =>
+  Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .map(([category, n]) => `${n} ${category.toLowerCase()}`)
+    .join(', ')
+
+const block = (text, title) => {
+  const lines = String(text).split('\n').length
+  return `<div class="piece">${title ? `<h4>${escape(title)}</h4>` : ''}<pre${lines > 40 || text.length > 4000 ? ' class="long"' : ''}>${wire(text)}</pre></div>`
+}
+
+const piece = (item) => {
+  if (typeof item === 'string') return block(item)
+  if (item.type === 'text') return /^\[llm-mask: attachment removed/.test(item.text) ? `<div class="piece removed"><pre>${escape(item.text)}</pre></div>` : block(item.text)
+  if (item.type === 'thinking') return block(item.thinking, 'Thinking')
+  if (item.type === 'redacted_thinking') return block('(encrypted)', 'Thinking')
+  if (item.type === 'tool_use') return block(typeof item.input === 'string' ? item.input : JSON.stringify(item.input, null, 2), `Asks to run ${item.name}`)
+  if (item.type === 'tool_result') return `<div class="piece"><h4>Result of a tool${item.is_error ? ', failed' : ''}</h4>${pieces(item.content)}</div>`
+  if (item.type === 'image' && item.source?.type === 'base64') return `<div class="piece"><h4>Image as it was sent</h4><img class="sent" alt="Image as it was sent" src="data:${escape(item.source.media_type)};base64,${escape(item.source.data)}"></div>`
+  return block(JSON.stringify(item, null, 2), item.type)
+}
+
+const pieces = (content) => (Array.isArray(content) ? content.map(piece).join('') : content === undefined ? '' : piece(content))
+
+const speaker = ({ role, content }) => {
+  if (role === 'assistant') return 'Claude, earlier'
+  const onlyResults = Array.isArray(content) && content.length > 0 && content.every((item) => item.type === 'tool_result')
+  return onlyResults ? 'From your machine' : 'You'
+}
+
+const turn = (message) => `<section class="turn"><h3>${speaker(message)}</h3>${pieces(message.content)}</section>`
+
+const folded = (title, detail, body) => `<details><summary><b>${escape(title)}</b> ${escape(detail)}</summary><div class="body" data-body="${escape(body)}"></div></details>`
+
+const bodies = {}
+const hold = (html) => {
+  const key = `b${Object.keys(bodies).length}`
+  bodies[key] = html
+  return key
+}
+
+const render = (exchange) => {
+  for (const key of Object.keys(bodies)) delete bodies[key]
+  const { request, response } = exchange
+  const messages = request?.messages ?? []
+  const lastReply = messages.map(({ role }) => role).lastIndexOf('assistant')
+  const earlier = messages.slice(0, lastReply + 1)
+  const fresh = messages.slice(lastReply + 1)
+  const system = typeof request?.system === 'string' ? request.system : (request?.system ?? []).map(({ text }) => text).join('\n\n')
+  const tools = request?.tools ?? []
+  const hiddenCount = total(exchange.counts)
+
+  const facts = [
+    `<li><b>${clock(exchange.time)}</b></li>`,
+    exchange.status ? `<li>answer <b>${exchange.status}</b></li>` : '<li>waiting for the answer</li>',
+    exchange.model ? `<li>model <b>${wire(exchange.model)}</b></li>` : '',
+    exchange.bytes ? `<li><b>${size(exchange.bytes)}</b> sent</li>` : '',
+    `<li><b>${plural(hiddenCount, 'value', 'values')}</b> hidden${hiddenCount ? `: ${escape(breakdown(exchange.counts))}` : ''}</li>`,
+    total(exchange.media) ? `<li>attachments: <b>${exchange.media.redacted}</b> painted, <b>${exchange.media.clean}</b> untouched, <b>${exchange.media.removed}</b> removed</li>` : '',
+  ].join('')
+
+  const sections = [
+    system ? folded('Instructions for the model', `${size(system.length)}, ${plural(masksIn(system), 'mask', 'masks')}`, hold(block(system))) : '',
+    tools.length ? folded('Tools offered to the model', `${tools.length}`, hold(tools.map((tool) => block(tool.description ?? '', tool.name)).join(''))) : '',
+    earlier.length ? folded('Earlier conversation, sent again', `${plural(earlier.length, 'message', 'messages')}, ${plural(masksIn(earlier), 'mask', 'masks')}`, hold(earlier.map(turn).join(''))) : '',
+  ].join('')
+
+  const answer = response?.content?.length ? `<section class="turn back"><h3>Claude</h3>${pieces(response.content)}</section>` : ''
+  const reason = String(response?.error?.message ?? response?.error?.type ?? '').replace(/, request was not sent$/, '')
+  const trouble = response?.error ? `<p class="trouble">${exchange.refused ? 'Stopped before sending:' : 'The other side answered with an error:'} ${escape(reason)}.</p>` : ''
+  const waiting = !exchange.done && !answer ? '<p class="note"><span class="live"></span>The answer is on its way.</p>' : ''
+
+  sheet.innerHTML = `
+    <div class="head">
+      <h2>${exchange.refused ? 'Request that was stopped' : 'Request and answer'}</h2>
+      <ul class="facts">${facts}</ul>
+    </div>
+    ${exchange.refused ? '' : '<p class="note">Text is shown exactly as it crossed the line. A bar like <mark>MSK_HOST_3fa9c1d2ab</mark> is a mask, real values are never shown on this page.</p>'}
+    ${sections}
+    ${fresh.map(turn).join('')}
+    ${exchange.refused ? '' : '<div class="line" role="separator"><span><b class="out">above: left your machine</b> &nbsp; <b class="in">below: came back</b></span></div>'}
+    ${answer}${waiting}${trouble}`
+
+  for (const details of sheet.querySelectorAll('details')) {
+    details.addEventListener('toggle', () => {
+      const target = details.querySelector('.body')
+      if (details.open && !target.innerHTML) target.innerHTML = bodies[target.dataset.body] ?? ''
+    })
+  }
+}
+
+const renderEmpty = () => {
+  sheet.innerHTML = offline
+    ? '<div class="empty"><h2>The session has ended</h2><p>This page shows a session only while it runs. Start Claude again and run <code>llm-mask watch</code>.</p></div>'
+    : '<div class="empty"><h2>Nothing has been sent yet</h2><p>Ask Claude something in the terminal. The request appears here the moment it leaves.</p></div>'
+}
+
+const renderFeed = () => {
+  feed.innerHTML = exchanges
+    .map((item) => {
+      const hidden = total(item.counts)
+      const state = item.done ? item.status : '<span class="live"></span>'
+      const what = item.refused ? 'Stopped, not sent' : item.path.endsWith('count_tokens') ? 'Size check' : plural(item.messages ?? 0, 'message', 'messages')
+      return `<li><button class="entry" data-id="${item.id}" aria-current="${item.id === selected}">
+        <time>${clock(item.time)}</time><span class="what">${what}</span><span class="state${item.status >= 400 ? ' bad' : ''}">${state}</span>
+        <span class="hidden">${hidden ? `${plural(hidden, 'value', 'values')} hidden` : 'nothing to hide'}${item.bytes ? `, ${size(item.bytes)}` : ''}</span>
+      </button></li>`
+    })
+    .join('')
+}
+
+const open = async (id) => {
+  const summary = exchanges.find((item) => item.id === id)
+  if (!summary) return
+  const stamp = `${id}:${summary.done}:${summary.status}`
+  if (stamp === shown) return
+  const response = await fetch(`${base}exchanges/${id}`)
+  if (!response.ok) return
+  const exchange = await response.json()
+  if (id !== selected) return
+  shown = `${id}:${exchange.done}:${exchange.status}`
+  const openSections = [...sheet.querySelectorAll('details')].map((details) => details.open)
+  const scroll = window.scrollY
+  render(exchange)
+  sheet.querySelectorAll('details').forEach((details, index) => {
+    if (openSections[index]) details.open = true
+  })
+  window.scrollTo(0, scroll)
+}
+
+const refresh = async () => {
+  try {
+    const response = await fetch(`${base}exchanges`)
+    if (!response.ok) throw new Error()
+    exchanges = await response.json()
+    offline = false
+  } catch {
+    offline = true
+  }
+  if (follow.checked && exchanges.length) selected = exchanges[0].id
+  if (selected && location.hash.slice(1) !== selected) history.replaceState(null, '', `#${selected}`)
+  if (selected && !exchanges.some((item) => item.id === selected)) selected = exchanges[0]?.id ?? null
+  renderFeed()
+  if (selected && !offline) await open(selected)
+  else if (!selected || (offline && !shown)) renderEmpty()
+}
+
+feed.addEventListener('click', (event) => {
+  const entry = event.target.closest('.entry')
+  if (!entry) return
+  selected = entry.dataset.id
+  follow.checked = selected === exchanges[0]?.id
+  shown = ''
+  window.scrollTo(0, 0)
+  renderFeed()
+  open(selected)
+})
+
+follow.addEventListener('change', refresh)
+follow.checked = !selected
+refresh()
+setInterval(refresh, 1000)
+</script>
+</body>
+</html>

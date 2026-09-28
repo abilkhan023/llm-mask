@@ -29,6 +29,7 @@ A placeholder looks like `MSK_HOST_3fa9c1d2ab`: the category and a keyed hash of
 | `node bin/llm-mask.js check <file or image>` | Show what would be sent instead of the file. |
 | `node bin/llm-mask.js add` | Add dictionary entries from standard input. |
 | `node bin/llm-mask.js status` | Counts per category, never values. |
+| `node bin/llm-mask.js watch` | Open the live view of a running session. `--print` only prints its address. |
 | `node bin/llm-mask.js help` | List the commands. The list lives in `USAGE` in `bin/llm-mask.js`, keep it in step with `commands`. |
 
 Requirements: Node 20 or newer. Image masking needs macOS with the Swift compiler.
@@ -49,6 +50,9 @@ Requirements: Node 20 or newer. Image masking needs macOS with the Swift compile
 | `src/media.js` | Finds what to paint in images, removes what cannot be inspected. |
 | `src/native.js`, `native/ocr.swift` | Text recognition and painting through Vision. |
 | `src/trust.js` | Certificate authorities from the macOS keychain and `NODE_EXTRA_CA_CERTS`. |
+| `src/recorder.js` | Last requests and replies of the session, in memory, as they crossed the line. |
+| `src/viewer.js`, `src/viewer.html` | Live view served by the proxy under `/__llm-mask/<key>/`. |
+| `src/sessions.js` | Announces a running session so that `watch` can find it. |
 
 Data lives outside the repository in `~/.llm-mask` (or `LLM_MASK_HOME`): `key`, `vault.json`, `dictionary.txt`, `config.json`, `audit.log`.
 
@@ -63,12 +67,16 @@ Data lives outside the repository in `~/.llm-mask` (or `LLM_MASK_HOME`): `key`, 
 - **The audit log holds categories and counts, never values.**
 - **Certificate verification is never switched off.**
 - **No runtime dependencies.**
+- **The live view keeps nothing on disk and shows no real value.** It records what was sent and what arrived, before anything is restored.
+- **The live view loads nothing from outside.** No fonts, scripts or images by address; the page is covered by a policy that forbids it.
+- **Addresses under `/__llm-mask` are never forwarded**, whether the view is on or off. They answer only to the right key and only when the request names this machine.
 
 ## Working agreements
 
 - Write the test first and watch it fail for the right reason. When a test passes on the first run, break the code on purpose and confirm the test notices.
 - No comments in code.
 - Tests use made-up values only: `corp.example`, `masktest.example`, fictional phone numbers. Never a real hostname, name, number or token.
+- A change to the page is looked at in a browser in the light theme, the dark theme and a narrow window before it is kept.
 - A new host or pattern rule is checked against real source code for false matches before it is kept. Property access such as `messages.ru` or `booted.ua` must stay readable.
 - Never print or log a real secret. When a script needs a value from a shell profile or a keychain, read it inside the script and keep it out of the output.
 - Do not commit or push unless asked.

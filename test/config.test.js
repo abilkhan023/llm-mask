@@ -14,6 +14,7 @@ test('defaults apply when there is no config file', () => {
     media: 'pass',
     keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'],
     envFiles: true,
+    viewer: true,
   })
   for (const domain of ['w3.org', 'github.com', 'anthropic.com', 'claude.ai', 'npmjs.com']) assert.equal(publicDomains.includes(domain), true, domain)
 })
@@ -21,7 +22,7 @@ test('defaults apply when there is no config file', () => {
 test('config file overrides only the settings it names', () => {
   const dir = tempDir()
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ media: 'block', keepMasked: ['WebFetch'], publicDomains: ['w3.org'] }))
-  assert.deepEqual(loadConfig(dir), { systemNote: true, media: 'block', keepMasked: ['WebFetch'], envFiles: true, publicDomains: ['w3.org'] })
+  assert.deepEqual(loadConfig(dir), { systemNote: true, media: 'block', keepMasked: ['WebFetch'], envFiles: true, viewer: true, publicDomains: ['w3.org'] })
 })
 
 test('public domains must be a list', () => {

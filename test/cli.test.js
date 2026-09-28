@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -155,14 +155,14 @@ test('help lists every command and succeeds', async () => {
 
   assert.equal(code, 0)
   assert.equal(stderr, '')
-  assert.deepEqual([...new Set(commandsIn(stdout))].sort(), ['add', 'check', 'help', 'run', 'status'])
+  assert.deepEqual([...new Set(commandsIn(stdout))].sort(), ['add', 'check', 'help', 'run', 'status', 'watch'])
 })
 
 test('help says what each command is for', async () => {
   const { stdout } = await run(['help'])
   const lines = stdout.split('\n').filter((line) => /^\s*llm-mask \w+/.test(line))
 
-  assert.equal(lines.length >= 5, true)
+  assert.equal(lines.length >= 6, true)
   for (const line of lines) assert.match(line, /^\s*llm-mask \S.*\s{2,}\S/, line)
 })
 
@@ -179,11 +179,53 @@ test('help is also shown for the usual help options and for no arguments', async
 test('every command named by help is accepted', async () => {
   const { stdout } = await run(['help'])
 
-  assert.equal(new Set(commandsIn(stdout)).size, 5)
+  assert.equal(new Set(commandsIn(stdout)).size, 6)
   for (const name of new Set(commandsIn(stdout))) {
     const { stderr } = await run([name], { input: '' })
-    assert.equal(/^usage/i.test(stderr) && name !== 'run', false, name)
+    assert.equal(/usage:/i.test(stderr) && name !== 'run', false, name)
   }
+})
+
+const announce = (home, session) => {
+  mkdirSync(join(home, 'sessions'), { recursive: true })
+  writeFileSync(join(home, 'sessions', `${session.pid}.json`), JSON.stringify(session))
+}
+
+test('watch prints the viewer of the running session', async () => {
+  const home = tempDir('home')
+  announce(home, { pid: process.pid, started: '2026-01-02T10:00:00.000Z', viewer: 'http://127.0.0.1:4101/__llm-mask/a1b2c3d4e5f60718293a4b5c6d7e8f90/' })
+  const { code, stdout } = await run(['watch', '--print'], { home })
+
+  assert.equal(code, 0)
+  assert.equal(stdout, 'http://127.0.0.1:4101/__llm-mask/a1b2c3d4e5f60718293a4b5c6d7e8f90/\n')
+})
+
+test('watch prints the newest session first', async () => {
+  const home = tempDir('home')
+  announce(home, { pid: process.pid, started: '2026-01-02T10:00:00.000Z', viewer: 'http://127.0.0.1:4101/__llm-mask/older/' })
+  announce(home, { pid: process.ppid, started: '2026-01-02T11:00:00.000Z', viewer: 'http://127.0.0.1:4102/__llm-mask/newer/' })
+  const { stdout } = await run(['watch', '--print'], { home })
+
+  assert.equal(stdout, 'http://127.0.0.1:4102/__llm-mask/newer/\nhttp://127.0.0.1:4101/__llm-mask/older/\n')
+})
+
+test('watch forgets a session whose process is gone', async () => {
+  const home = tempDir('home')
+  announce(home, { pid: 2147483000, started: '2026-01-02T10:00:00.000Z', viewer: 'http://127.0.0.1:4101/__llm-mask/gone/' })
+  const { code, stdout, stderr } = await run(['watch', '--print'], { home })
+
+  assert.equal(code, 1)
+  assert.equal(stdout, '')
+  assert.match(stderr, /llm-mask run/)
+  assert.equal(existsSync(join(home, 'sessions', '2147483000.json')), false)
+})
+
+test('watch says how to start when nothing is running', async () => {
+  const { code, stdout, stderr } = await run(['watch', '--print'])
+
+  assert.equal(code, 1)
+  assert.equal(stdout, '')
+  assert.match(stderr, /llm-mask run/)
 })
 
 test('unknown command exits with a usage error', async () => {

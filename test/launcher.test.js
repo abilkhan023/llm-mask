@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createServer as createSecureServer } from 'node:https'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -252,4 +252,81 @@ test('secure upstream is reached with the authorities named in the environment',
 
   assert.deepEqual(seen, ['/v1/messages'])
   assert.equal(report().reply, 'secure reply')
+})
+
+const WATCHER = `
+const { readdirSync, readFileSync, writeFileSync } = require('node:fs')
+const { join } = require('node:path')
+const sessions = join(process.env.TEST_HOME, 'sessions')
+const [file] = readdirSync(sessions)
+const session = JSON.parse(readFileSync(join(sessions, file), 'utf8'))
+fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ messages: [{ role: 'user', content: 'mail a.user@corp.example' }] }),
+})
+  .then(() => fetch(session.viewer + 'exchanges'))
+  .then((response) => response.json())
+  .then((list) => fetch(session.viewer + 'exchanges/' + list[0].id))
+  .then((response) => response.json())
+  .then((exchange) => {
+    writeFileSync(process.env.TEST_REPORT, JSON.stringify({ file, session, exchange, mode: require('node:fs').statSync(join(sessions, file)).mode & 0o777 }))
+  })
+`
+
+const watched = async (t, config) => {
+  const home = tempDir('home')
+  if (config) writeFileSync(join(home, 'config.json'), JSON.stringify(config))
+  const { upstream, cwd } = await setup(t, { home })
+  const script = join(cwd, 'watcher.cjs')
+  const reportFile = join(cwd, 'watch-report.json')
+  writeFileSync(script, WATCHER)
+  const code = await launch({
+    command: process.execPath,
+    args: [script],
+    cwd,
+    home,
+    env: { PATH: process.env.PATH, ANTHROPIC_BASE_URL: upstream.url, TEST_HOME: home, TEST_REPORT: reportFile },
+  })
+  return { code, home, report: () => JSON.parse(readFileSync(reportFile, 'utf8')) }
+}
+
+test('running session is announced with the address of its viewer', async (t) => {
+  const { code, report } = await watched(t)
+  const { file, session, mode } = report()
+
+  assert.equal(code, 0)
+  assert.equal(file, `${session.pid}.json`)
+  assert.match(session.viewer, /^http:\/\/127\.0\.0\.1:\d+\/__llm-mask\/[0-9a-f]{32}\/$/)
+  assert.match(session.started, /^\d{4}-\d{2}-\d{2}T/)
+  assert.deepEqual(Object.keys(session).sort(), ['pid', 'started', 'viewer'])
+  assert.equal(mode, 0o600)
+})
+
+test('viewer of a running session shows what was sent', async (t) => {
+  const { report } = await watched(t)
+  const { exchange } = report()
+
+  assert.match(exchange.request.messages[0].content, /^mail MSK_EMAIL_[0-9a-f]{10}$/)
+  assert.equal(JSON.stringify(exchange).includes('a.user'), false)
+})
+
+test('announcement is removed when the session ends', async (t) => {
+  const { home } = await watched(t)
+  assert.deepEqual(readdirSync(join(home, 'sessions')), [])
+})
+
+test('each session gets its own key', async (t) => {
+  const first = (await watched(t)).report().session.viewer
+  const second = (await watched(t)).report().session.viewer
+  assert.notEqual(first.split('/').at(-2), second.split('/').at(-2))
+})
+
+test('session is not announced when the viewer is switched off', async (t) => {
+  const home = tempDir('home')
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ viewer: false }))
+  const { run } = await setup(t, { home })
+  await run('hi')
+
+  assert.equal(existsSync(join(home, 'sessions')) && readdirSync(join(home, 'sessions')).length > 0, false)
 })

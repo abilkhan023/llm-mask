@@ -89,6 +89,7 @@ ANTHROPIC_BASE_URL=... ANTHROPIC_API_KEY=... llm-mask run -- claude
 | `llm-mask check <image>` | Write a painted copy next to the image as `name.masked.png`. |
 | `llm-mask add` | Add dictionary entries from standard input. |
 | `llm-mask status` | Counts per category, never values. |
+| `llm-mask watch` | Open the live view of what is sent and what comes back. |
 | `llm-mask help` | List the commands. Also `--help`, `-h`, or no arguments at all. |
 
 Examples:
@@ -102,6 +103,30 @@ llm-mask add                                  # several entries, one per line, f
 ```
 
 Add entries from a separate terminal. Anything typed into a conversation is sent before it reaches the dictionary.
+
+## See what is sent
+
+While a session runs, open a second terminal:
+
+```
+llm-mask watch
+```
+
+A page opens in the browser with every request of the session and the answer to it, as a conversation. The text is shown exactly as it crossed the line, masks are drawn as bars, images are shown as they were sent.
+
+| Part of the page | What it shows |
+|---|---|
+| List on the left | Every request: time, number of messages, how many values were hidden, size, answer status. |
+| Instructions, tools, earlier conversation | Folded by default. They are sent again with every request. |
+| Above the dashed line | What left your machine in this request. |
+| Below the dashed line | What came back. |
+
+What to know about it:
+
+- **Nothing is written to disk.** The last 30 requests are kept in memory and are gone when the session ends.
+- **Real values are never shown**, only what the model saw.
+- **The page is served from your machine only**, under an address with a random key, and loads nothing from outside.
+- `llm-mask watch --print` prints the address without opening the browser.
 
 ## Dictionary
 
@@ -127,6 +152,7 @@ regex:operator_\d{5}
 | `keepMasked` | `["WebFetch", "WebSearch", "mcp__*"]` | Tools that receive placeholders instead of real values. |
 | `envFiles` | `true` | Treat values from `.env*` files of the working directory as sensitive. |
 | `systemNote` | `true` | Tell the model to copy placeholders exactly. |
+| `viewer` | `true` | Keep the last requests in memory for `llm-mask watch`. |
 
 With `"media": "redact"`, PDF files, images given by address and images that cannot be read are removed from the request, because they cannot be inspected.
 
@@ -143,6 +169,7 @@ With `"media": "redact"`, PDF files, images given by address and images that can
 | `dictionary.txt` | Your entries. |
 | `config.json` | Settings. |
 | `audit.log` | One line per request: path, status, counts per category. No values. |
+| `sessions/` | Address of the live view of each running session. Removed when the session ends. |
 
 ## Check it yourself
 

@@ -3,8 +3,10 @@ import { request as requestHttps } from 'node:https'
 import { StringDecoder } from 'node:string_decoder'
 import { rootCertificates } from 'node:tls'
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib'
+import { createRecorder } from './recorder.js'
 import { maskAnyJson, maskRequest, unmaskResponse } from './request.js'
 import { createSseUnmasker } from './stream.js'
+import { createViewer, isViewerPath, refuseViewerPath } from './viewer.js'
 
 const MESSAGES_PATH = /\/v1\/messages(?:\/count_tokens)?$/
 const REQUEST_HEADERS_DROPPED = new Set(['host', 'connection', 'keep-alive', 'proxy-connection', 'content-length', 'transfer-encoding', 'accept-encoding'])
@@ -30,11 +32,13 @@ const sendJson = (res, status, body, headers = {}) => {
 
 const refusal = (message) => ({ type: 'error', error: { type: 'llm_mask_error', message: `llm-mask: ${message}` } })
 
-export const startProxy = async ({ upstream, masker, redactor, authorities = [], options, audit = () => {}, persist = () => {} }) => {
+export const startProxy = async ({ upstream, masker, redactor, authorities = [], viewerToken, options, audit = () => {}, persist = () => {} }) => {
   const target = new URL(upstream)
   const send = target.protocol === 'https:' ? requestHttps : requestHttp
   const prefix = target.pathname.replace(/\/$/, '')
   const ca = authorities.length ? [...rootCertificates, ...authorities] : undefined
+  const recorder = viewerToken ? createRecorder() : undefined
+  const viewer = viewerToken ? createViewer({ recorder, token: viewerToken }) : undefined
 
   const maskMessages = async (parsed, entry) => {
     if (options.media !== 'redact') return maskRequest(parsed, masker, options)
@@ -61,13 +65,13 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
       entry.counts = masked.counts
       entry.skipped = masked.skipped
       persist()
-      return { body: Buffer.from(JSON.stringify(masked.body)) }
+      return { body: Buffer.from(JSON.stringify(masked.body)), sent: masked.body }
     } catch {
       return { status: 500, message: 'masking failed, request was not sent' }
     }
   }
 
-  const relay = (incoming, res, entry) => {
+  const relay = (incoming, res, entry, exchange) => {
     const encoding = incoming.headers['content-encoding']
     const decode = DECODERS[encoding]
     const readable = !encoding || Boolean(decode)
@@ -75,7 +79,10 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
     const headers = without(incoming.headers, decode ? RESPONSE_HEADERS_DECODED : RESPONSE_HEADERS_DROPPED)
     const type = incoming.headers['content-type'] ?? ''
     entry.status = incoming.statusCode
-    const finish = () => audit(entry)
+    const finish = () => {
+      exchange?.end(incoming.statusCode)
+      audit(entry)
+    }
     incoming.on('error', () => res.destroy())
     source.on('error', () => res.destroy())
 
@@ -84,11 +91,15 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
       const unmasker = createSseUnmasker(masker, options)
       res.writeHead(incoming.statusCode, headers)
       source.on('data', (chunk) => {
-        const restored = unmasker.push(decoder.write(chunk))
+        const received = decoder.write(chunk)
+        exchange?.chunk(received)
+        const restored = unmasker.push(received)
         if (restored) res.write(restored)
       })
       source.on('end', () => {
-        res.end(unmasker.push(decoder.end()) + unmasker.flush())
+        const received = decoder.end()
+        exchange?.chunk(received)
+        res.end(unmasker.push(received) + unmasker.flush())
         finish()
       })
       return
@@ -99,7 +110,9 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
         (raw) => {
           let payload = raw
           try {
-            payload = Buffer.from(JSON.stringify(unmaskResponse(JSON.parse(raw.toString('utf8')), masker, options)))
+            const received = JSON.parse(raw.toString('utf8'))
+            exchange?.body(received)
+            payload = Buffer.from(JSON.stringify(unmaskResponse(received, masker, options)))
           } catch {}
           res.writeHead(incoming.statusCode, { ...headers, 'content-length': payload.length })
           res.end(payload)
@@ -118,22 +131,32 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
   const handle = async (req, res) => {
     const path = req.url.split('?')[0]
     const entry = { time: new Date().toISOString(), method: req.method, path, counts: {}, skipped: {} }
+    let exchange
     const fail = (status, message) => {
       Object.assign(entry, { status, refused: true })
       audit(entry)
+      if (exchange) {
+        exchange.body({ error: { type: 'unreachable', message } })
+        exchange.end(status)
+      } else {
+        recorder?.refuse({ method: req.method, path, status, reason: message })
+      }
       if (res.headersSent) res.destroy()
       else sendJson(res, status, refusal(message))
     }
 
     const masked = await maskBody(req, path, await readAll(req), entry)
     if (masked.status) return fail(masked.status, masked.message)
+    if (masked.sent) {
+      exchange = recorder?.begin({ method: req.method, path, request: masked.sent, bytes: masked.body.length, counts: entry.counts, media: entry.media })
+    }
 
     const headers = { ...without(req.headers, REQUEST_HEADERS_DROPPED), host: target.host, 'accept-encoding': 'identity' }
     if (masked.body.length) headers['content-length'] = masked.body.length
 
     const outgoing = send(
       { protocol: target.protocol, hostname: target.hostname, port: target.port, method: req.method, path: prefix + req.url, headers, ca },
-      (incoming) => relay(incoming, res, entry),
+      (incoming) => relay(incoming, res, entry, exchange),
     )
     outgoing.on('error', () => fail(502, 'upstream is unreachable'))
     res.on('close', () => {
@@ -143,6 +166,8 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
   }
 
   const server = createServer((req, res) => {
+    if (viewer?.handle(req, res)) return
+    if (isViewerPath(req)) return refuseViewerPath(res)
     handle(req, res).catch(() => res.destroy())
   })
   await new Promise((resolve, reject) => {
@@ -157,5 +182,5 @@ export const startProxy = async ({ upstream, masker, redactor, authorities = [],
       server.closeAllConnections()
     })
 
-  return { port, address, close }
+  return { port, address, close, viewer: viewer?.address(port) }
 }

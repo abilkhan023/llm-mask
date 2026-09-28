@@ -8,7 +8,7 @@ const PUBLIC_DOMAINS = [
   'schema.org', 'json-schema.org', 'stackoverflow.com', 'vuejs.org', 'typescriptlang.org', 'apple.com',
   'microsoft.com', 'socket.io', 'shields.io',
 ]
-const DEFAULTS = { systemNote: true, media: 'pass', keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'], envFiles: true, publicDomains: PUBLIC_DOMAINS }
+const DEFAULTS = { systemNote: true, media: 'pass', keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'], envFiles: true, viewer: true, publicDomains: PUBLIC_DOMAINS }
 const MEDIA_MODES = ['pass', 'block', 'redact']
 const ENV_FILE = /^\.env(\..+)?$/
 const ENV_LINE = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*?)\s*$/

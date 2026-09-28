@@ -437,6 +437,94 @@ test('secure upstream signed by an unknown authority is refused when no authorit
   assert.deepEqual(requests, [])
 })
 
+const VIEWER_KEY = 'a1b2c3d4e5f60718293a4b5c6d7e8f90'
+
+const setupWithViewer = async (t, respond, viewerToken = VIEWER_KEY) => {
+  const vault = openVault(mkdtempSync(join(tmpdir(), 'llm-mask-proxy-')))
+  const masker = createMasker({ vault, detect: createDetector({ dictionary: ['domain:corp.example'] }) })
+  const host = vault.placeholderFor('gitlab.corp.example', 'HOST')
+  const upstream = await startUpstream((request, res) => respond(request, res, host))
+  const proxy = await startProxy({ upstream: upstream.url, masker, viewerToken, options: { systemNote: false, media: 'pass', keepMasked: [] } })
+  t.after(async () => {
+    await proxy.close()
+    await upstream.close()
+  })
+  const url = `http://127.0.0.1:${proxy.port}`
+  const exchanges = async () => (await fetch(`${proxy.viewer}exchanges`)).json()
+  const exchange = async (id) => (await fetch(`${proxy.viewer}exchanges/${id}`)).json()
+  return { upstream, proxy, host, url, exchanges, exchange }
+}
+
+test('viewer shows the request as it was sent and the reply as it arrived', async (t) => {
+  const { host, url, exchanges, exchange } = await setupWithViewer(t, (request, res, placeholder) => json(res, 200, reply(`opened ${placeholder}`)))
+  const answer = await (await post(`${url}/v1/messages`, message('open gitlab.corp.example'))).json()
+  const [summary] = await exchanges()
+  const full = await exchange(summary.id)
+
+  assert.equal(answer.content[0].text, 'opened gitlab.corp.example')
+  assert.equal(summary.status, 200)
+  assert.equal(summary.done, true)
+  assert.deepEqual(summary.counts, { HOST: 1 })
+  assert.deepEqual(full.request.messages, [{ role: 'user', content: `open ${host}` }])
+  assert.deepEqual(full.response.content, [{ type: 'text', text: `opened ${host}` }])
+  assert.equal(JSON.stringify(full).includes('corp.example'), false)
+})
+
+test('viewer shows a streamed reply as it arrived', async (t) => {
+  const { host, url, exchanges, exchange } = await setupWithViewer(t, (request, res, placeholder) => {
+    const frame = (event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write(frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }))
+    res.write(frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `opened ${placeholder.slice(0, 8)}` } }))
+    res.write(frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `${placeholder.slice(8)} for you` } }))
+    res.write(frame({ type: 'content_block_stop', index: 0 }))
+    res.end(frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 9 } }))
+  })
+  const body = await (await post(`${url}/v1/messages`, { ...message('open gitlab.corp.example'), stream: true })).text()
+  const [summary] = await exchanges()
+  const full = await exchange(summary.id)
+
+  assert.equal(body.includes('gitlab.corp.example for you'), true)
+  assert.deepEqual(full.response.content, [{ type: 'text', text: `opened ${host} for you` }])
+  assert.equal(full.response.stop_reason, 'end_turn')
+  assert.equal(summary.done, true)
+})
+
+test('viewer lists a request that was refused', async (t) => {
+  const { url, exchanges } = await setupWithViewer(t, (request, res) => json(res, 200, reply('ok')))
+  await post(`${url}/v1/messages`, 'not json with gitlab.corp.example')
+  const [summary] = await exchanges()
+
+  assert.equal(summary.status, 400)
+  assert.equal(summary.refused, true)
+  assert.equal(JSON.stringify(await exchanges()).includes('corp.example'), false)
+})
+
+test('viewer lists the exchange with the size of what was sent', async (t) => {
+  const { upstream, url, exchanges } = await setupWithViewer(t, (request, res) => json(res, 200, reply('ok')))
+  await post(`${url}/v1/messages`, message('open gitlab.corp.example'))
+  const [summary] = await exchanges()
+
+  assert.equal(summary.bytes, Buffer.byteLength(upstream.requests[0].body))
+})
+
+test('viewer addresses are never forwarded', async (t) => {
+  const { upstream, url } = await setupWithViewer(t, (request, res) => json(res, 200, reply('ok')))
+  await fetch(`${url}/__llm-mask/00000000000000000000000000000000/exchanges`)
+  await fetch(`${url}/__llm-mask/`)
+
+  assert.deepEqual(upstream.requests, [])
+})
+
+test('viewer addresses are never forwarded when the viewer is off', async (t) => {
+  const { upstream, proxy, url } = await setupWithViewer(t, (request, res) => json(res, 200, reply('ok')), null)
+  const response = await fetch(`${url}/__llm-mask/${VIEWER_KEY}/exchanges`)
+
+  assert.equal(proxy.viewer, undefined)
+  assert.equal(response.status, 404)
+  assert.deepEqual(upstream.requests, [])
+})
+
 test('proxy accepts connections from the local machine only', async (t) => {
   const { proxy } = await setup(t, (request, res) => json(res, 200, reply('ok')))
   assert.equal(proxy.address, '127.0.0.1')
