@@ -1,0 +1,149 @@
+# llm-mask
+
+Local proxy that masks secrets, hosts and personal data in everything Claude Code sends to the API and restores them in the replies.
+
+```
+Claude Code ──real values──> llm-mask on 127.0.0.1 ──placeholders──> API or gateway
+Claude Code <──real values── llm-mask              <──placeholders──
+```
+
+The model and everything between you and it see `MSK_HOST_3fa9c1d2ab`. You and the tools on your machine see the real value.
+
+```
+before:  api https://api.corp.example/v1, DB_PASSWORD=hunter2hunter42
+after:   api https://MSK_HOST_a43a809fa6/v1, DB_PASSWORD=MSK_SECRET_5c1e0b7a92
+```
+
+## What it covers
+
+| Covered | How |
+|---|---|
+| Your prompt, files read by tools, command output, memory, subagents | Everything goes through one proxy, so nothing depends on the model following instructions. |
+| Secrets | Tokens of common services, private keys, JWT, `Authorization` values, passwords in assignments, credentials inside addresses. |
+| Hosts and origins | Any host after a scheme, domain names standing alone. Port and path stay readable. |
+| Personal data | Email, IP, phone numbers, payment card numbers, Kazakhstan IIN. |
+| Your own list | Words, domains and patterns from a dictionary, values from `.env*` files of the working directory. |
+| Images | Text is recognized locally, sensitive parts are painted black before the image leaves. |
+
+## What it does not cover
+
+- **The code itself.** Logic, function names, file names and paths in addresses are sent as they are.
+- **Anything in an image that is not recognized text:** faces, logos, diagrams, small or unusual print.
+- **A host written as a single word without a scheme**, such as `pbx01` in plain text. Add those to the dictionary.
+- **A plain `claude`.** Only a command started through `llm-mask run` is protected.
+- **What a command does with a real value.** Local tools receive real values, otherwise they could not work. A shell command that sends data elsewhere is held back by the permission prompts of Claude Code, not by this tool.
+
+It reduces what leaves your machine. It is not a guarantee.
+
+## Requirements
+
+- Node 20 or newer, no other dependencies.
+- Claude Code.
+- For image masking: macOS with the Swift compiler (`xcode-select --install`).
+
+## Install
+
+```
+git clone https://github.com/abilkhan023/llm-mask.git
+cd llm-mask
+npm link
+```
+
+## Use
+
+```
+llm-mask run -- claude
+```
+
+An alias makes it a habit:
+
+```
+alias claude-safe='llm-mask run -- claude'
+```
+
+**With a gateway.** If `ANTHROPIC_BASE_URL` is already set, the proxy puts itself in front of it and forwards there. Credentials and protocol headers pass through unchanged. Keep your variables and change only the last word:
+
+```
+ANTHROPIC_BASE_URL=... ANTHROPIC_API_KEY=... llm-mask run -- claude
+```
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `llm-mask run -- <command>` | Start a command behind the proxy. |
+| `llm-mask check <file>` | Print what would be sent instead of the file. Reads standard input without a file. |
+| `llm-mask check <image>` | Write a painted copy next to the image as `name.masked.png`. |
+| `llm-mask add` | Add dictionary entries from standard input. |
+| `llm-mask status` | Counts per category, never values. |
+
+Add entries from a separate terminal. Anything typed into a conversation is sent before it reaches the dictionary.
+
+## Dictionary
+
+`~/.llm-mask/dictionary.txt`, one entry per line:
+
+```
+# a word or a name, any letter case, three characters or more
+acme
+# a domain with all its subdomains
+domain:corp.example
+# a pattern
+regex:operator_\d{5}
+```
+
+## Settings
+
+`~/.llm-mask/config.json`. Every key is optional.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `media` | `"pass"` | `"pass"` sends images as they are, `"redact"` paints sensitive text, `"block"` removes every attachment. |
+| `publicDomains` | about thirty well-known domains | Domains that stay readable, with their subdomains. `[]` hides every domain. |
+| `keepMasked` | `["WebFetch", "WebSearch", "mcp__*"]` | Tools that receive placeholders instead of real values. |
+| `envFiles` | `true` | Treat values from `.env*` files of the working directory as sensitive. |
+| `systemNote` | `true` | Tell the model to copy placeholders exactly. |
+
+With `"media": "redact"`, PDF files, images given by address and images that cannot be read are removed from the request, because they cannot be inspected.
+
+`WebFetch` receives placeholders, so fetching a page works only for domains listed in `publicDomains`.
+
+## Where data is kept
+
+`~/.llm-mask`, or the directory named in `LLM_MASK_HOME`. Files are readable by the owner only.
+
+| File | Content |
+|---|---|
+| `key` | Key that placeholders are derived from. |
+| `vault.json` | Placeholders and the real values behind them, **in plain text**. |
+| `dictionary.txt` | Your entries. |
+| `config.json` | Settings. |
+| `audit.log` | One line per request: path, status, counts per category. No values. |
+
+## Check it yourself
+
+```
+printf 'mail a.user@corp.example from 10.20.30.40' | llm-mask check
+tail ~/.llm-mask/audit.log
+```
+
+## Details worth knowing
+
+- **Same value, same placeholder.** Prompt caching keeps working.
+- **Fail closed.** A request that cannot be parsed or masked is refused and not forwarded.
+- **Thinking blocks are left untouched**, they are signed by the API.
+- **Telemetry, error reports and the bug command of Claude Code are switched off** for the started command.
+- **Certificates.** On macOS the proxy trusts the authorities your keychain trusts. Elsewhere use `NODE_EXTRA_CA_CERTS`.
+- **Look-alike characters in images.** A slashed zero is often read as `ø`. Known values are found in images even then.
+
+## Development
+
+```
+npm test
+```
+
+The first run compiles the Swift helper. See `CLAUDE.md` for the layout and the rules that must keep holding.
+
+## License
+
+MIT
