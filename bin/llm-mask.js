@@ -6,13 +6,23 @@ import { loadDictionary } from '../src/config.js'
 import { createDetector } from '../src/detectors.js'
 import { launch, openRedactor, openSession } from '../src/launcher.js'
 
-const USAGE = `usage:
+const USAGE = `llm-mask: masks sensitive values in what Claude Code sends and restores them in the replies
+
+usage:
   llm-mask run -- <command> [arguments]   start a command behind the masking proxy
   llm-mask check [file]                   print the masked form of a file or of standard input
   llm-mask check <image>                  write a painted copy of an image next to it
   llm-mask add                            add dictionary entries read from standard input
   llm-mask status                         show how much is masked, by category
+  llm-mask help                           show this list
+
+dictionary entries for add, one per line:
+  acme                    a word or a name, any letter case
+  domain:corp.example     a domain with all its subdomains
+  regex:operator_\\d{5}    a pattern
 `
+
+const HELP_OPTIONS = ['--help', '-h']
 
 const home = process.env.LLM_MASK_HOME || join(homedir(), '.llm-mask')
 const cwd = process.cwd()
@@ -79,6 +89,11 @@ const commands = {
     return 0
   },
 
+  help: () => {
+    process.stdout.write(USAGE)
+    return 0
+  },
+
   status: () => {
     const { vault } = openSession({ home, cwd })
     const entries = loadDictionary(home).filter((line) => line.trim() && !line.trim().startsWith('#'))
@@ -87,10 +102,11 @@ const commands = {
   },
 }
 
-const [name, ...rest] = process.argv.slice(2)
+const [given = 'help', ...rest] = process.argv.slice(2)
+const name = HELP_OPTIONS.includes(given) ? 'help' : given
 
 try {
-  if (!commands[name]) throw new UsageError()
+  if (!Object.hasOwn(commands, name)) throw new UsageError()
   process.exitCode = await commands[name](rest)
 } catch (error) {
   if (error instanceof UsageError) {

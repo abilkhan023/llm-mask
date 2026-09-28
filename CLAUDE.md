@@ -29,6 +29,7 @@ A placeholder looks like `MSK_HOST_3fa9c1d2ab`: the category and a keyed hash of
 | `node bin/llm-mask.js check <file or image>` | Show what would be sent instead of the file. |
 | `node bin/llm-mask.js add` | Add dictionary entries from standard input. |
 | `node bin/llm-mask.js status` | Counts per category, never values. |
+| `node bin/llm-mask.js help` | List the commands. The list lives in `USAGE` in `bin/llm-mask.js`, keep it in step with `commands`. |
 
 Requirements: Node 20 or newer. Image masking needs macOS with the Swift compiler.
 

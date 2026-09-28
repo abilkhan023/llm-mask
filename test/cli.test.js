@@ -148,6 +148,44 @@ test('status shows counts per category and no values', async () => {
   assert.equal(stdout.includes('a.user'), false)
 })
 
+const commandsIn = (output) => [...output.matchAll(/^\s*llm-mask (\w+)/gm)].map((match) => match[1])
+
+test('help lists every command and succeeds', async () => {
+  const { code, stdout, stderr } = await run(['help'])
+
+  assert.equal(code, 0)
+  assert.equal(stderr, '')
+  assert.deepEqual([...new Set(commandsIn(stdout))].sort(), ['add', 'check', 'help', 'run', 'status'])
+})
+
+test('help says what each command is for', async () => {
+  const { stdout } = await run(['help'])
+  const lines = stdout.split('\n').filter((line) => /^\s*llm-mask \w+/.test(line))
+
+  assert.equal(lines.length >= 5, true)
+  for (const line of lines) assert.match(line, /^\s*llm-mask \S.*\s{2,}\S/, line)
+})
+
+test('help is also shown for the usual help options and for no arguments', async () => {
+  const expected = (await run(['help'])).stdout
+
+  for (const args of [['--help'], ['-h'], []]) {
+    const { code, stdout } = await run(args)
+    assert.equal(code, 0, args.join(' '))
+    assert.equal(stdout, expected, args.join(' '))
+  }
+})
+
+test('every command named by help is accepted', async () => {
+  const { stdout } = await run(['help'])
+
+  assert.equal(new Set(commandsIn(stdout)).size, 5)
+  for (const name of new Set(commandsIn(stdout))) {
+    const { stderr } = await run([name], { input: '' })
+    assert.equal(/^usage/i.test(stderr) && name !== 'run', false, name)
+  }
+})
+
 test('unknown command exits with a usage error', async () => {
   const { code, stderr } = await run(['explode'])
   assert.equal(code, 2)

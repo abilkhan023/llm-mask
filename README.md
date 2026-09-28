@@ -89,6 +89,17 @@ ANTHROPIC_BASE_URL=... ANTHROPIC_API_KEY=... llm-mask run -- claude
 | `llm-mask check <image>` | Write a painted copy next to the image as `name.masked.png`. |
 | `llm-mask add` | Add dictionary entries from standard input. |
 | `llm-mask status` | Counts per category, never values. |
+| `llm-mask help` | List the commands. Also `--help`, `-h`, or no arguments at all. |
+
+Examples:
+
+```
+llm-mask check notes.txt                      # a file
+pbpaste | llm-mask check                      # whatever is in the clipboard
+llm-mask check screenshot.png                 # writes screenshot.masked.png
+printf 'domain:corp.example\n' | llm-mask add # one entry
+llm-mask add                                  # several entries, one per line, finish with Ctrl+D
+```
 
 Add entries from a separate terminal. Anything typed into a conversation is sent before it reaches the dictionary.
 
