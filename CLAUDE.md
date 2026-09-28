@@ -66,6 +66,8 @@ Data lives outside the repository in `~/.llm-mask` (or `LLM_MASK_HOME`): `key`, 
 - **Tool names, ids, the model name and schema keys are never masked.**
 - **The audit log holds categories and counts, never values.**
 - **Certificate verification is never switched off.**
+- **Known values are searched with plain alternations.** Conditions such as whole word go around the alternation, never inside each alternative: the second form made a 6 MB request take 8 seconds instead of 0.3.
+- **Logins and names learned from context are matched as whole words**, secrets as any part of a string.
 - **No runtime dependencies.**
 - **The live view keeps nothing on disk and shows no real value.** It records what was sent and what arrived, before anything is restored.
 - **The live view loads nothing from outside.** No fonts, scripts or images by address; the page is covered by a policy that forbids it.

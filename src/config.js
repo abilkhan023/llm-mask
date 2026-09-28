@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
+import { hostname, userInfo } from 'node:os'
 import { join } from 'node:path'
 
 const PUBLIC_DOMAINS = [
@@ -8,7 +10,7 @@ const PUBLIC_DOMAINS = [
   'schema.org', 'json-schema.org', 'stackoverflow.com', 'vuejs.org', 'typescriptlang.org', 'apple.com',
   'microsoft.com', 'socket.io', 'shields.io',
 ]
-const DEFAULTS = { systemNote: true, media: 'pass', keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'], envFiles: true, viewer: true, publicDomains: PUBLIC_DOMAINS }
+const DEFAULTS = { systemNote: true, media: 'pass', keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'], envFiles: true, viewer: true, identities: true, publicDomains: PUBLIC_DOMAINS }
 const MEDIA_MODES = ['pass', 'block', 'redact']
 const ENV_FILE = /^\.env(\..+)?$/
 const ENV_LINE = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.*?)\s*$/
@@ -36,6 +38,17 @@ export const loadConfig = (home) => {
   if (!MEDIA_MODES.includes(config.media)) throw new Error(`config.json: media must be one of: ${MEDIA_MODES.join(', ')}`)
   if (!Array.isArray(config.publicDomains)) throw new Error('config.json: publicDomains must be a list')
   return config
+}
+
+const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+
+export const readIdentities = ({ run = execute } = {}) => {
+  const identities = { account: userInfo().username, machine: hostname().replace(/\.local$/, '') }
+  try {
+    const fullName = run('git', ['config', '--global', 'user.name']).trim()
+    if (fullName) identities.fullName = fullName
+  } catch {}
+  return identities
 }
 
 export const loadDictionary = (home) => readOptional(join(home, 'dictionary.txt'))?.split(/\r?\n/) ?? []

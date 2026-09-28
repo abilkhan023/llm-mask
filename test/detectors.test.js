@@ -2,10 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDetector } from '../src/detectors.js'
 
-const found = (text, dictionary = [], publicDomains = ['example.org', 'w3.org', 'github.com']) =>
-  createDetector({ dictionary, publicDomains })(text)
+const found = (text, dictionary = [], publicDomains = ['example.org', 'w3.org', 'github.com'], identities = {}) =>
+  createDetector({ dictionary, publicDomains, identities })(text)
+    .sort((a, b) => a.start - b.start)
     .map(({ value, category }) => ({ value, category }))
-    .sort((a, b) => text.indexOf(a.value) - text.indexOf(b.value))
 
 const detected = [
   ['email address', 'contact a.user@corp.example now', [{ value: 'a.user@corp.example', category: 'EMAIL' }]],
@@ -57,6 +57,19 @@ const detected = [
   ['domain name at the end of a sentence', 'deployed to api.service.local.', [{ value: 'api.service.local', category: 'HOST' }]],
   ['domain name in a git remote', 'git@gitlab.corp.kz:group/repo.git', [{ value: 'gitlab.corp.kz', category: 'HOST' }]],
   ['domain name in quotes', "baseURL: 'api.corp.kz',", [{ value: 'api.corp.kz', category: 'HOST' }]],
+  ['login made of a name and five digits', 'agent operator_12345 is online', [{ value: 'operator_12345', category: 'LOGIN' }]],
+  ['login in the path of a web address', 'wss://portal.corp.kz/api/ws-api/operator_12345/open', [{ value: 'portal.corp.kz', category: 'HOST' }, { value: 'operator_12345', category: 'LOGIN' }]],
+  ['login as a quoted value', '{"user":"operator_12345"}', [{ value: 'operator_12345', category: 'LOGIN' }]],
+  ['login as a query value', 'GET /report?agent=operator_12345&page=2', [{ value: 'operator_12345', category: 'LOGIN' }]],
+  ['login named by its key', "username: 'jsmith',", [{ value: 'jsmith', category: 'LOGIN' }]],
+  ['login named by a json key', '{"login": "ivanov.a", "page": 2}', [{ value: 'ivanov.a', category: 'LOGIN' }]],
+  ['login assigned to a variable', 'const user = "a-petrov"', [{ value: 'a-petrov', category: 'LOGIN' }]],
+  ['login named by a key with a separator', "user_name: 'jsmith', userLogin: 'kim.lee', user_id: 'u10293'", [{ value: 'jsmith', category: 'LOGIN' }, { value: 'kim.lee', category: 'LOGIN' }, { value: 'u10293', category: 'LOGIN' }]],
+  ['login in an environment assignment', 'DB_USER=jsmith LOGIN=kim.lee npm start', [{ value: 'jsmith', category: 'LOGIN' }, { value: 'kim.lee', category: 'LOGIN' }]],
+  ['login after a collection in a web address', 'GET https://portal.corp.kz/api/users/jsmith/settings', [{ value: 'portal.corp.kz', category: 'HOST' }, { value: 'jsmith', category: 'LOGIN' }]],
+  ['login after another collection in a web address', 'wss://portal.corp.kz/agents/ivanov.a and https://portal.corp.kz/v2/accounts/kim_lee?x=1', [{ value: 'portal.corp.kz', category: 'HOST' }, { value: 'ivanov.a', category: 'LOGIN' }, { value: 'portal.corp.kz', category: 'HOST' }, { value: 'kim_lee', category: 'LOGIN' }]],
+  ['login in the query of a web address', 'https://portal.corp.kz/report?user=jsmith&page=2&login=kim.lee', [{ value: 'portal.corp.kz', category: 'HOST' }, { value: 'jsmith', category: 'LOGIN' }, { value: 'kim.lee', category: 'LOGIN' }]],
+  ['login in a query without a host', 'GET /report?agent=ivanov.a&operator=kim.lee', [{ value: 'ivanov.a', category: 'LOGIN' }, { value: 'kim.lee', category: 'LOGIN' }]],
   ['individual identification number', 'iin 900101300007 ok', [{ value: '900101300007', category: 'IIN' }]],
   ['card number with spaces', 'card 4111 1111 1111 1111 ok', [{ value: '4111 1111 1111 1111', category: 'CARD' }]],
   ['card number compact', 'card 4111111111111111 ok', [{ value: '4111111111111111', category: 'CARD' }]],
@@ -68,6 +81,21 @@ for (const [name, text, want] of detected) {
 
 const ignored = [
   ['typescript type annotation', 'password: string'],
+  ['names with a number of another length', 'sha_256 iso_8601 year_2024 http_404 build_123456 run_1234567'],
+  ['names with five digits that continue', 'operator_12345x operator_12345_backup operator_123456'],
+  ['names with five digits inside a longer name', 'my_operator_12345 lastOperator_12345 x.operator_12345a'],
+  ['constant with five digits', 'ERROR_12345 Code_12345'],
+  ['short prefix with five digits', 'id_12345 no_54321'],
+  ['label of a field', "login: 'Войти', username: 'Username', user: 'User', login: 'Sign-in'"],
+  ['account that names nobody', "user: 'admin', login: 'root', username: 'guest', user: 'anonymous', login: 'test'"],
+  ['type or rule instead of a value', "username: 'string', login: 'required', user: 'object', uid: 'number'"],
+  ['key that only contains a login word', "userAgent: 'mozilla', loginUrl: 'start', userRole: 'viewer', superuser: 'yes', agent: 'keepalive', operator: 'contains'"],
+  ['login value that is too short or has spaces', "user: 'ab', username: 'John Smith'"],
+  ['folder of a source tree', "import list from './users/list' and src/components/users/UserCard.vue and /var/app/accounts/index.ts"],
+  ['page of a collection in a web address', 'https://portal.corp.kz/api/users/me https://portal.corp.kz/users/search?q=x https://portal.corp.kz/accounts/settings'.replaceAll('portal.corp.kz', 'github.com')],
+  ['placeholder in a web address', 'https://github.com/api/users/{id} https://github.com/users/:id https://github.com/users/${id}/x'],
+  ['file in a web address', 'https://github.com/users/avatar.png https://github.com/accounts/index.html'],
+  ['query value that names nobody', 'https://github.com/report?user=admin&login=true&uid=12'],
   ['method call on an object', 'console.log(value)'],
   ['property of this', 'this.value = this.net'],
   ['translation table keyed by language', 'return messages.ru || locale.kz || i18n.tr'],
@@ -155,6 +183,52 @@ test('dictionary domain still wins for names that would otherwise be public', ()
   assert.deepEqual(found('https://internal.github.com/x', ['domain:internal.github.com']), [
     { value: 'internal.github.com', category: 'HOST' },
   ])
+})
+
+const mine = { account: 'jsmith', fullName: 'John Smith', machine: 'Johns-MacBook-Pro' }
+const here = (text, identities = mine) => found(text, [], ['example.org'], identities)
+
+test('account of this machine is found in the path of a home folder', () => {
+  assert.deepEqual(here('open /Users/jsmith/project/app.js and /home/jsmith/.ssh/config'), [
+    { value: 'jsmith', category: 'LOGIN' },
+    { value: 'jsmith', category: 'LOGIN' },
+  ])
+})
+
+test('account of this machine is found as a word of its own', () => {
+  assert.deepEqual(here('-rw-r--r--  1 jsmith  staff  120 notes.txt'), [{ value: 'jsmith', category: 'LOGIN' }])
+})
+
+test('account of this machine is not found inside another word', () => {
+  assert.deepEqual(here('jsmithson and ajsmith and jsmith_backup'), [])
+})
+
+test('account with a name that many machines share is hidden in home folders only', () => {
+  const found = here('open /Users/admin/project as admin in the admin panel', { account: 'admin' })
+  assert.deepEqual(found, [{ value: 'admin', category: 'LOGIN' }])
+})
+
+test('full name of the owner is found in any letter case', () => {
+  assert.deepEqual(here('Git user: John Smith, signed by JOHN SMITH'), [
+    { value: 'John Smith', category: 'NAME' },
+    { value: 'JOHN SMITH', category: 'NAME' },
+  ])
+})
+
+test('name of this machine is found', () => {
+  assert.deepEqual(here('jsmith@Johns-MacBook-Pro project %'), [
+    { value: 'jsmith', category: 'LOGIN' },
+    { value: 'Johns-MacBook-Pro', category: 'HOST' },
+  ])
+})
+
+test('identities that are missing or too short are skipped', () => {
+  assert.deepEqual(here('/Users/ab/x by Al on pc', { account: 'ab', fullName: 'Al', machine: 'pc' }), [])
+  assert.deepEqual(here('/Users/jsmith/x', {}), [])
+})
+
+test('identity with regex characters is matched literally', () => {
+  assert.deepEqual(here('/Users/j.smith/x and /Users/jxsmith/x', { account: 'j.smith' }), [{ value: 'j.smith', category: 'LOGIN' }])
 })
 
 test('dictionary regex matches with a custom category', () => {

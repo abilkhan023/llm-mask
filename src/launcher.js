@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { constants } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, loadDictionary, readEnvFiles } from './config.js'
+import { loadConfig, loadDictionary, readEnvFiles, readIdentities } from './config.js'
 import { createDetector } from './detectors.js'
 import { createMasker } from './masker.js'
 import { createRedactor } from './media.js'
@@ -38,21 +38,22 @@ const runCommand = (command, args, options) =>
     })
   })
 
-export const openSession = ({ home, cwd }) => {
+export const openSession = ({ home, cwd, identities }) => {
   mkdirSync(home, { recursive: true, mode: 0o700 })
   const config = loadConfig(home)
   const dictionary = [...loadDictionary(home), ...(config.envFiles ? readEnvFiles(cwd) : [])]
   const vault = openVault(home)
-  const masker = createMasker({ vault, detect: createDetector({ dictionary, publicDomains: config.publicDomains }) })
+  const known = config.identities ? (identities ?? readIdentities()) : {}
+  const masker = createMasker({ vault, detect: createDetector({ dictionary, publicDomains: config.publicDomains, identities: known }) })
   return { config, vault, masker }
 }
 
 export const openRedactor = async (masker) => createRedactor({ engine: createNativeEngine({ binary: await buildHelper() }), masker })
 
-export const launch = async ({ command, args, cwd, home, env }) => {
+export const launch = async ({ command, args, cwd, home, env, identities }) => {
   if (env.LLM_MASK_ACTIVE) return runCommand(command, args, { cwd, env })
 
-  const { config, vault, masker } = openSession({ home, cwd })
+  const { config, vault, masker } = openSession({ home, cwd, identities })
   const upstream = env.ANTHROPIC_BASE_URL || DEFAULT_UPSTREAM
   const auditFile = join(home, 'audit.log')
 

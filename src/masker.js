@@ -8,6 +8,8 @@ const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 const categoryOf = (placeholder) => placeholder.split('_')[1]
 
+const WHOLE_WORDS = new Set(['LOGIN', 'NAME'])
+
 const LOOKALIKES = {
   o: '0', ø: '0', о: '0',
   l: '1', i: '1', '|': '1', і: '1', ı: '1',
@@ -32,19 +34,34 @@ export const createMasker = ({ vault, detect }) => {
   let loosePattern = null
   let looseOriginals = null
 
+  const isWholeWord = (value) => WHOLE_WORDS.has(categoryOf(vault.placeholderFor(value, 'TERM')))
+
+  const alternation = (values) => values.map(escapeRegex).join('|')
+
+  const patternsFor = (values) => {
+    const words = values.filter(isWholeWord)
+    const parts = values.filter((value) => !isWholeWord(value))
+    return [
+      parts.length ? new RegExp(alternation(parts), 'g') : null,
+      words.length ? new RegExp(`(?<![A-Za-z0-9_])(?:${alternation(words)})(?![A-Za-z0-9_])`, 'g') : null,
+    ].filter(Boolean)
+  }
+
   const findKnown = (text) => {
     const values = vault.knownValues()
     if (!values.length) return []
     if (values !== knownValues) {
       knownValues = values
-      knownPattern = new RegExp(values.map(escapeRegex).join('|'), 'g')
+      knownPattern = patternsFor(values)
     }
-    return [...text.matchAll(knownPattern)].map((match) => ({
-      start: match.index,
-      end: match.index + match[0].length,
-      value: match[0],
-      category: 'TERM',
-    }))
+    return knownPattern.flatMap((pattern) =>
+      [...text.matchAll(pattern)].map((match) => ({
+        start: match.index,
+        end: match.index + match[0].length,
+        value: match[0],
+        category: 'TERM',
+      })),
+    )
   }
 
   const findLookalikes = (text) => {

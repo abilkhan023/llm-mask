@@ -160,3 +160,34 @@ test('strict locate ignores look-alikes so that text is restored exactly', () =>
   assert.deepEqual(masker.locate('pass Trøub4dor3xK done'), [])
   assert.equal(masker.mask('pass Trøub4dor3xK done').text, 'pass Trøub4dor3xK done')
 })
+
+test('login learned from its key is masked later as a whole word only', () => {
+  const { masker } = setup()
+  masker.mask("username: 'petrov'")
+  assert.match(masker.mask('ask petrov, not petrovsky or apetrov').text, /^ask MSK_LOGIN_[0-9a-f]{10}, not petrovsky or apetrov$/)
+})
+
+test('login learned from its key is masked later inside a web address', () => {
+  const { masker } = setup()
+  masker.mask("username: 'petrov'")
+  assert.match(masker.mask('wss://localhost/api/ws-api/petrov/open').text, /^wss:\/\/localhost\/api\/ws-api\/MSK_LOGIN_[0-9a-f]{10}\/open$/)
+})
+
+test('secret learned from context is masked later even inside a longer string', () => {
+  const { masker } = setup()
+  masker.mask('DB_PASSWORD=hunter2hunter')
+  assert.match(masker.mask('token%3Dxhunter2huntery%26').text, /^token%3DxMSK_SECRET_[0-9a-f]{10}y%26$/)
+})
+
+test('large text with thousands of known values is masked quickly', () => {
+  const { masker, vault } = setup()
+  for (let i = 0; i < 2000; i++) vault.placeholderFor(`known-secret-${i}-${(i * 7919).toString(36)}`, 'SECRET')
+  for (let i = 0; i < 1000; i++) vault.placeholderFor(`person${i}.login`, 'LOGIN')
+  const line = 'const handler = async (session) => fetch(base + "/items?id=" + session.id, { headers }) // person7.login known-secret-5-azz\n'
+  const text = line.repeat(16000)
+  const started = performance.now()
+  const { counts } = masker.mask(text)
+
+  assert.equal(performance.now() - started < 1500, true)
+  assert.deepEqual(counts, { LOGIN: 16000 })
+})

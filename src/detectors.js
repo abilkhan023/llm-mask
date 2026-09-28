@@ -16,7 +16,23 @@ const CODE_OBJECTS = new Set([
 ])
 const LOCAL_HOSTS = new Set(['localhost', '0.0.0.0'])
 const HOST_SHAPE = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i
-const FILE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'js', 'ts', 'css', 'vue', 'json', 'map'])
+const FILE_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'js', 'ts', 'css', 'vue', 'json', 'map',
+  'html', 'htm', 'md', 'txt', 'pdf', 'xml', 'yml', 'yaml', 'csv',
+])
+const LOGIN_KEYS = 'user(?:[_-]?(?:name|login|id))?|login(?:[_-]?name)?|uid'
+const LOGIN_QUERY_KEYS = `${LOGIN_KEYS}|agent|operator|account|owner`
+const COLLECTIONS = 'users?|agents?|operators?|accounts?|members?|employees?|profiles?'
+const LOGIN_SHAPE = /^[a-z0-9][a-z0-9._-]{2,63}$/
+const NOBODY = new Set([
+  'admin', 'administrator', 'root', 'user', 'guest', 'anonymous', 'anon', 'test', 'tester', 'demo', 'default', 'system',
+  'unknown', 'none', 'null', 'undefined', 'true', 'false', 'string', 'number', 'boolean', 'object', 'array',
+  'required', 'optional',
+])
+const PAGES = new Set([
+  'self', 'current', 'list', 'all', 'new', 'create', 'edit', 'update', 'delete', 'search', 'login', 'logout',
+  'settings', 'profile', 'info', 'status', 'count', 'export', 'import', 'batch', 'bulk', 'api',
+])
 
 const digitsOf = (value) => value.replace(/\D/g, '')
 
@@ -47,6 +63,11 @@ const isIin = (value) => {
   if (check === 10) check = weighted(value, [3, 4, 5, 6, 7, 8, 9, 10, 11, 1, 2])
   return check === Number(value[11])
 }
+
+const extensionOf = (value) => value.slice(value.lastIndexOf('.') + 1).toLowerCase()
+
+const isLogin = (value) =>
+  LOGIN_SHAPE.test(value) && /[a-z]/.test(value) && !NOBODY.has(value) && !PAGES.has(value) && !FILE_EXTENSIONS.has(extensionOf(value))
 
 const isRoutableIp = (value) => !value.startsWith('127.') && value !== '0.0.0.0' && value !== '255.255.255.255'
 
@@ -89,6 +110,28 @@ const BUILT_IN = [
   { category: 'PHONE', source: '(?<![\\w+.])8[ \\-(]{0,2}7\\d{2}[ \\-)]{0,2}\\d{3}[ -]?\\d{2}[ -]?\\d{2}(?!\\d)' },
   { category: 'PHONE', source: '(?<![\\w+])\\+[1-9]\\d{9,14}(?!\\d)' },
   { category: 'IIN', source: '(?<![\\d+])\\d{12}(?!\\d)', accept: isIin },
+  { category: 'LOGIN', source: '(?<![A-Za-z0-9_])[a-z]{3,}_\\d{5}(?![A-Za-z0-9_])' },
+  {
+    category: 'LOGIN',
+    source: `(?<![A-Za-z0-9])(?:${LOGIN_KEYS})["']?\\s*[:=]\\s*(["'\`])([^\\s"'\`\\\\]{3,64})\\1`,
+    flags: 'i',
+    group: 2,
+    accept: isLogin,
+  },
+  {
+    category: 'LOGIN',
+    source: `(?<![A-Za-z0-9_])[A-Z0-9_]*(?:USER(?:NAME)?|LOGIN)=(["']?)([^\\s"']{3,64})\\1`,
+    group: 2,
+    accept: isLogin,
+  },
+  {
+    category: 'LOGIN',
+    source: `://[^\\s/]+(?:/[^\\s/?#]+)*?/(?:${COLLECTIONS})/([^\\s/?#"'\`<>{}:$&]{3,64})`,
+    flags: 'i',
+    group: 1,
+    accept: isLogin,
+  },
+  { category: 'LOGIN', source: `[?&](?:${LOGIN_QUERY_KEYS})=([^&\\s#"'\`<>]{3,64})`, flags: 'i', group: 1, accept: isLogin },
   {
     category: 'CARD',
     source: '(?<!\\d)(?:\\d{15,19}|\\d{4}([ -])\\d{4}\\1\\d{4}\\1\\d{3,7}|\\d{4}([ -])\\d{6}\\2\\d{5})(?!\\d)',
@@ -114,6 +157,22 @@ const hostDetectors = (publicDomains) => {
 }
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const identityDetectors = ({ account = '', fullName = '', machine = '' } = {}) => {
+  const found = []
+  if (account.length >= 3) {
+    found.push({ category: 'LOGIN', source: `(?<=/Users/|/home/)${escapeRegex(account)}(?![A-Za-z0-9._-])` })
+  }
+  if (account.length >= 4 && !NOBODY.has(account.toLowerCase())) {
+    found.push({ category: 'LOGIN', source: `(?<![A-Za-z0-9._-])${escapeRegex(account)}(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])` })
+  }
+  if (fullName.length >= 5) {
+    found.push({ category: 'NAME', source: `(?<![\\p{L}\\p{N}])${escapeRegex(fullName)}(?![\\p{L}\\p{N}])`, flags: 'iu' })
+  }
+  if (machine.length >= 4) found.push({ category: 'HOST', source: escapeRegex(machine), flags: 'i' })
+  return found
+}
+
 
 const fromDictionary = (line) => {
   const entry = line.trim()
@@ -151,7 +210,7 @@ export const withoutOverlaps = (matches) => {
   return kept
 }
 
-export const createDetector = ({ dictionary = [], publicDomains = [] } = {}) => {
+export const createDetector = ({ dictionary = [], publicDomains = [], identities = {} } = {}) => {
   const custom = dictionary.map((line, index) => {
     const entry = fromDictionary(line)
     try {
@@ -160,7 +219,12 @@ export const createDetector = ({ dictionary = [], publicDomains = [] } = {}) => 
       throw new Error(`dictionary entry ${index + 1} is not a valid pattern`)
     }
   })
-  const detectors = [...custom.filter(Boolean), ...BUILT_IN.map(compile), ...hostDetectors(publicDomains).map(compile)]
+  const detectors = [
+    ...custom.filter(Boolean),
+    ...identityDetectors(identities).map(compile),
+    ...BUILT_IN.map(compile),
+    ...hostDetectors(publicDomains).map(compile),
+  ]
 
   return (text) => {
     const matches = []

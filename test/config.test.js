@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, loadDictionary, readEnvFiles } from '../src/config.js'
+import { userInfo } from 'node:os'
+import { loadConfig, loadDictionary, readEnvFiles, readIdentities } from '../src/config.js'
 
 const tempDir = () => mkdtempSync(join(tmpdir(), 'llm-mask-config-'))
 
@@ -15,6 +16,7 @@ test('defaults apply when there is no config file', () => {
     keepMasked: ['WebFetch', 'WebSearch', 'mcp__*'],
     envFiles: true,
     viewer: true,
+    identities: true,
   })
   for (const domain of ['w3.org', 'github.com', 'anthropic.com', 'claude.ai', 'npmjs.com']) assert.equal(publicDomains.includes(domain), true, domain)
 })
@@ -22,7 +24,7 @@ test('defaults apply when there is no config file', () => {
 test('config file overrides only the settings it names', () => {
   const dir = tempDir()
   writeFileSync(join(dir, 'config.json'), JSON.stringify({ media: 'block', keepMasked: ['WebFetch'], publicDomains: ['w3.org'] }))
-  assert.deepEqual(loadConfig(dir), { systemNote: true, media: 'block', keepMasked: ['WebFetch'], envFiles: true, viewer: true, publicDomains: ['w3.org'] })
+  assert.deepEqual(loadConfig(dir), { systemNote: true, media: 'block', keepMasked: ['WebFetch'], envFiles: true, viewer: true, identities: true, publicDomains: ['w3.org'] })
 })
 
 test('public domains must be a list', () => {
@@ -94,4 +96,31 @@ test('env files are read from every dotenv variant in the directory without dupl
 
 test('directory without env files gives nothing', () => {
   assert.deepEqual(readEnvFiles(tempDir()), [])
+})
+
+test('identities of this machine are read from the system', () => {
+  const identities = readIdentities({ run: () => 'John Smith\n' })
+
+  assert.equal(identities.account, userInfo().username)
+  assert.equal(identities.fullName, 'John Smith')
+  assert.equal(typeof identities.machine, 'string')
+  assert.equal(identities.machine.endsWith('.local'), false)
+})
+
+test('identities are read without a full name when git has none', () => {
+  const identities = readIdentities({
+    run: () => {
+      throw new Error('git is not configured')
+    },
+  })
+
+  assert.equal(identities.account, userInfo().username)
+  assert.equal(identities.fullName, undefined)
+})
+
+test('git is asked for the name of the owner only', () => {
+  const calls = []
+  readIdentities({ run: (command, args) => (calls.push([command, ...args]), '') })
+
+  assert.deepEqual(calls, [['git', 'config', '--global', 'user.name']])
 })

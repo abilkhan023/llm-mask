@@ -35,6 +35,9 @@ The same happens to files that Claude Code reads and to the output of commands i
 | Secrets | Tokens of common services, private keys, JWT, `Authorization` values, passwords in assignments, credentials inside addresses. |
 | Hosts and origins | Any host after a scheme, domain names standing alone. Port and path stay readable. |
 | Personal data | Email, IP, phone numbers, payment card numbers, Kazakhstan IIN. |
+| Logins | The value of `user`, `username`, `login` or `uid`. The part after `/users/`, `/agents/` or `/accounts/` in an address and the value of `?user=` or `?login=`. A name with five digits such as `operator_12345`. |
+| This machine | The account name, also inside home folder paths, the name of the owner from git and the name of the machine. |
+| What was seen once | A login or a secret found in one place is hidden everywhere else from then on. |
 | Your own list | Words, domains and patterns from a dictionary, values from `.env*` files of the working directory. |
 | Images | Text is recognized locally, sensitive parts are painted black before the image leaves. |
 
@@ -43,6 +46,7 @@ The same happens to files that Claude Code reads and to the output of commands i
 - **The code itself.** Logic, function names, file names and paths in addresses are sent as they are.
 - **Anything in an image that is not recognized text:** faces, logos, diagrams, small or unusual print.
 - **A host written as a single word without a scheme**, such as `pbx01` in plain text. Add those to the dictionary.
+- **A login that nothing points at.** A bare word such as `jsmith` in plain text looks like any other word. It is hidden once it has been seen next to a key or inside an address, or once it is in the dictionary.
 - **A plain `claude`.** Only a command started through `llm-mask run` is protected.
 - **What a command does with a real value.** Local tools receive real values, otherwise they could not work. A shell command that sends data elsewhere is held back by the permission prompts of Claude Code, not by this tool.
 
@@ -153,6 +157,7 @@ regex:operator_\d{5}
 | `envFiles` | `true` | Treat values from `.env*` files of the working directory as sensitive. |
 | `systemNote` | `true` | Tell the model to copy placeholders exactly. |
 | `viewer` | `true` | Keep the last requests in memory for `llm-mask watch`. |
+| `identities` | `true` | Hide the account name, the owner name and the machine name of this computer. |
 
 With `"media": "redact"`, PDF files, images given by address and images that cannot be read are removed from the request, because they cannot be inspected.
 

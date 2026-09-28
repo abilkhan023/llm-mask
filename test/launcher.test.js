@@ -56,12 +56,13 @@ const setup = async (t, { env = {}, files = {}, home = tempDir('home') } = {}) =
   const script = join(cwd, 'client.cjs')
   writeFileSync(script, CLIENT)
   const reportFile = join(cwd, 'report.json')
-  const run = (prompt, extra = {}) =>
+  const run = (prompt, extra = {}, identities = {}) =>
     launch({
       command: process.execPath,
       args: [script, 'first', '--second'],
       cwd,
       home,
+      identities,
       env: { PATH: process.env.PATH, ANTHROPIC_BASE_URL: upstream.url, ANTHROPIC_API_KEY: 'key-for-gateway', TEST_PROMPT: prompt, TEST_REPORT: reportFile, ...env, ...extra },
     })
   const report = () => JSON.parse(readFileSync(reportFile, 'utf8'))
@@ -329,4 +330,21 @@ test('session is not announced when the viewer is switched off', async (t) => {
   await run('hi')
 
   assert.equal(existsSync(join(home, 'sessions')) && readdirSync(join(home, 'sessions')).length > 0, false)
+})
+
+test('identities of this machine are hidden and restored in the reply', async (t) => {
+  const { upstream, run } = await setup(t)
+  await run('open /Users/jsmith/project owned by John Smith', {}, { account: 'jsmith', fullName: 'John Smith' })
+
+  const [{ content }] = JSON.parse(upstream.requests[0].body).messages
+  assert.match(content, /^open \/Users\/MSK_LOGIN_[0-9a-f]{10}\/project owned by MSK_NAME_[0-9a-f]{10}$/)
+})
+
+test('identities of this machine are left alone when the config switches that off', async (t) => {
+  const home = tempDir('home')
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ identities: false, systemNote: false }))
+  const { upstream, run } = await setup(t, { home })
+  await run('open /Users/jsmith/project owned by John Smith', {}, { account: 'jsmith', fullName: 'John Smith' })
+
+  assert.deepEqual(JSON.parse(upstream.requests[0].body).messages, [{ role: 'user', content: 'open /Users/jsmith/project owned by John Smith' }])
 })
