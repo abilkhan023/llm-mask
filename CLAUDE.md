@@ -53,6 +53,7 @@ Requirements: Node 20 or newer. Image masking needs macOS with the Swift compile
 | `src/recorder.js` | Last requests and replies of the session, in memory, as they crossed the line. |
 | `src/viewer.js`, `src/viewer.html` | Live view served by the proxy under `/__llm-mask/<key>/`. |
 | `src/sessions.js` | Announces a running session so that `watch` can find it. |
+| `src/parts.js` | Tells what a person wrote from what Claude Code added, and names a request. Used by the recorder and, as text put into the page, by the live view. It must stay free of imports. |
 
 Data lives outside the repository in `~/.llm-mask` (or `LLM_MASK_HOME`): `key`, `vault.json`, `dictionary.txt`, `config.json`, `audit.log`.
 
@@ -78,7 +79,8 @@ Data lives outside the repository in `~/.llm-mask` (or `LLM_MASK_HOME`): `key`, 
 - Write the test first and watch it fail for the right reason. When a test passes on the first run, break the code on purpose and confirm the test notices.
 - No comments in code.
 - Tests use made-up values only: `corp.example`, `masktest.example`, fictional phone numbers. Never a real hostname, name, number or token.
-- A change to the page is looked at in a browser in the light theme, the dark theme and a narrow window before it is kept.
+- A change to the page is looked at in a browser in the light theme, the dark theme and a narrow window before it is kept, and on a request of a real session: it has dozens of tools and long inserts, a made-up request hides the problems.
+- Every text on the page exists in English and in Russian.
 - A new host or pattern rule is checked against real source code for false matches before it is kept. Property access such as `messages.ru` or `booted.ua` must stay readable.
 - Never print or log a real secret. When a script needs a value from a shell profile or a keychain, read it inside the script and keep it out of the output.
 - Do not commit or push unless asked.

@@ -25,11 +25,25 @@ test('exchange in progress is listed with what is known so far', () => {
   assert.match(summary.time, /^\d{4}-\d{2}-\d{2}T/)
 })
 
-test('summary does not carry the request or the reply', () => {
+test('summary says what the request was about', () => {
   const recorder = createRecorder()
-  started(recorder).end(200)
+  started(recorder, '<system-reminder>Follow the rules.</system-reminder>\nopen MSK_HOST_0123456789 and check the port')
+  const [summary] = recorder.list()
 
-  assert.equal(JSON.stringify(recorder.list()).includes('MSK_HOST_0123456789'), false)
+  assert.equal(summary.kind, 'question')
+  assert.equal(summary.title, 'open MSK_HOST_0123456789 and check the port')
+})
+
+test('summary carries a short title and not the request or the reply', () => {
+  const recorder = createRecorder()
+  const exchange = started(recorder, `open MSK_HOST_0123456789\n${'long body of the request '.repeat(200)}`)
+  exchange.body({ content: [{ type: 'text', text: 'a reply that must not be listed' }] })
+  exchange.end(200)
+  const listed = JSON.stringify(recorder.list())
+
+  assert.equal(listed.includes('long body of the request'), false)
+  assert.equal(listed.includes('a reply that must not be listed'), false)
+  assert.equal(listed.length < 600, true)
 })
 
 test('full exchange holds the request exactly as it was sent', () => {

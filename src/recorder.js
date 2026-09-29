@@ -1,3 +1,5 @@
+import { describeRequest } from './parts.js'
+
 const EVENT_END = /\r?\n\r?\n/g
 
 const parse = (raw) => {
@@ -90,7 +92,7 @@ export const createRecorder = ({ limit = 30, maxBytes = 64 * 1024 * 1024 } = {})
 
   const begin = ({ method, path, request, bytes, counts, media }) => {
     const { summary, reply } = keep(
-      { method, path, model: request?.model, messages: request?.messages?.length, bytes, counts, media },
+      { method, path, model: request?.model, messages: request?.messages?.length, bytes, counts, media, ...describeRequest(request) },
       request,
     )
     return {

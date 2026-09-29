@@ -120,10 +120,12 @@ A page opens in the browser with every request of the session and the answer to 
 
 | Part of the page | What it shows |
 |---|---|
-| List on the left | Every request: time, number of messages, how many values were hidden, size, answer status. |
-| Instructions, tools, earlier conversation | Folded by default. They are sent again with every request. |
-| Above the dashed line | What left your machine in this request. |
-| Below the dashed line | What came back. |
+| List on the left | Every request named by what it carried: your question, the result of a tool, or a check that Claude Code sends by itself. |
+| Hidden in this request | How many values were hidden, of which kinds, and where: in your message, in the results, in what Claude Code added, in the instructions or in tool descriptions. |
+| Left your machine | Your message first. What Claude Code added around it, the earlier conversation, the instructions and the tools are folded: they are sent again with every request. |
+| Came back | The answer, or the command the model asks to run. |
+
+The page is in English or Russian, chosen by the browser and switchable at the top.
 
 What to know about it:
 

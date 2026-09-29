@@ -60,6 +60,15 @@ test('page itself names no outside address', async (t) => {
   assert.equal(/@import|url\(\s*["']?https?:/i.test(page), false)
 })
 
+test('page carries the rules that tell what the person wrote from what was added', async (t) => {
+  const { base } = await setup(t)
+  const page = await (await fetch(`${base}/`)).text()
+
+  assert.match(page, /const splitParts = /)
+  assert.equal(page.includes('SHARED_PARTS'), false)
+  assert.equal(/^export /m.test(page), false)
+})
+
 test('list of exchanges is served', async (t) => {
   const { recorder, base } = await setup(t)
   recorder.begin({ method: 'POST', path: '/v1/messages', request: { model: 'claude-sonnet-5', messages: [] }, bytes: 10, counts: {} }).end(200)

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 export const VIEWER_PREFIX = '/__llm-mask'
 
 const PAGE = fileURLToPath(new URL('./viewer.html', import.meta.url))
+const SHARED = fileURLToPath(new URL('./parts.js', import.meta.url))
 const LOCAL_NAMES = ['127.0.0.1', 'localhost']
 const POLICY = [
   "default-src 'none'",
@@ -41,7 +42,8 @@ const namesThisMachine = (req) => {
 }
 
 export const createViewer = ({ recorder, token }) => {
-  const page = readFileSync(PAGE)
+  const shared = readFileSync(SHARED, 'utf8').replace(/^export /gm, '')
+  const page = readFileSync(PAGE, 'utf8').replace('/*SHARED_PARTS*/', () => shared)
   const base = `${VIEWER_PREFIX}/${token}/`
 
   const answer = (req, res) => {
